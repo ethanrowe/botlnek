@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+func hashKVPairs(pairs util.StringKVPairs) string {
+	hash := sha256.New()
+	pairs.WriteTo(hash)
+	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
 // The specific counter implementation details come
 // from the persistence layer, so we simply want an
 // interface that makes sense.
@@ -31,10 +37,7 @@ type Source struct {
 }
 
 func (s Source) KeyHash() string {
-	pairs := util.NewStringKVPairs(s.Keys)
-	hash := sha256.New()
-	pairs.WriteTo(hash)
-	return fmt.Sprintf("%x", hash.Sum(nil))
+	return hashKVPairs(util.NewStringKVPairs(s.Keys))
 }
 
 type SourceRegistration struct {
@@ -53,6 +56,14 @@ type Partition struct {
 }
 
 type Domain struct {
-	Attrs      util.StringKVPairs
-	Partitions map[string]Partition
+	DomainKey string
+	Attrs     util.StringKVPairs
+	// Partitions map[string]Partition
+}
+
+func (d Domain) Equals(other Domain) bool {
+	if d.DomainKey != other.DomainKey {
+		return false
+	}
+	return hashKVPairs(d.Attrs) == hashKVPairs(other.Attrs)
 }
