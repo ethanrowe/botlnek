@@ -2,6 +2,7 @@ package rest
 
 import (
 	"errors"
+	"github.com/ethanrowe/botlnek/pkg/model"
 	"github.com/ethanrowe/botlnek/pkg/util"
 	"net/http"
 	"strings"
@@ -20,7 +21,12 @@ func HelloWorldRoute(r *http.Request) (JsonResponder, error) {
 	return NewJsonResponse(200, result), nil
 }
 
-func DomainsCollectionRoute(r *http.Request) (JsonResponder, error) {
+type RestApplication struct {
+	DomainWriter model.DomainWriter
+	DomainReader model.DomainReader
+}
+
+func (app *RestApplication) DomainsCollectionRoute(r *http.Request) (JsonResponder, error) {
 	if r.Method == http.MethodGet {
 		// For now we'll always respond with an empty list.
 		return NewJsonResponse(200, struct{ Domains []string }{make([]string, 0)}), nil
@@ -32,7 +38,7 @@ func DomainsCollectionRoute(r *http.Request) (JsonResponder, error) {
 	return NewJsonErrorResponse(http.StatusMethodNotAllowed, errors.New("Only GET/POST are supported")), nil
 }
 
-func DomainRoute(r *http.Request) (JsonResponder, error) {
+func (app *RestApplication) DomainRoute(r *http.Request) (JsonResponder, error) {
 	if r.Method == http.MethodGet {
 		// For now respond with a stub domain
 		domain := struct {
@@ -54,7 +60,7 @@ func DomainRoute(r *http.Request) (JsonResponder, error) {
 	return NewJsonErrorResponse(http.StatusMethodNotAllowed, errors.New("Only GET is supported")), nil
 }
 
-func PartitionsRoute(r *http.Request) (JsonResponder, error) {
+func (app *RestApplication) PartitionsRoute(r *http.Request) (JsonResponder, error) {
 	if r.Method == http.MethodPost {
 		// For now just accept.
 		return NewJsonResponse(202, "partition accepted"), nil
@@ -66,14 +72,14 @@ func HandleJsonRoute(mux *http.ServeMux, pattern string, h func(*http.Request) (
 	mux.Handle(pattern, NewJsonHandler(h))
 }
 
-func ApplyRoutes(mux *http.ServeMux) {
+func (app *RestApplication) ApplyRoutes(mux *http.ServeMux) {
 	HandleJsonRoute(mux, "/", HelloWorldRoute)
 	// Get a list of domains;
 	// Post a new domain
-	HandleJsonRoute(mux, "/domains", DomainsCollectionRoute)
+	HandleJsonRoute(mux, "/domains", app.DomainsCollectionRoute)
 	// Get a specific domain
-	HandleJsonRoute(mux, "/domains/", DomainRoute)
+	HandleJsonRoute(mux, "/domains/", app.DomainRoute)
 	// Post a new partition
 	// Get an existing partition
-	HandleJsonRoute(mux, "/partitions/", PartitionsRoute)
+	HandleJsonRoute(mux, "/partitions/", app.PartitionsRoute)
 }

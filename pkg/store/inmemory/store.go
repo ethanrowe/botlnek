@@ -8,14 +8,14 @@ type partitionStore struct {
 	// An ordered log of partitions registered to this store
 	Log []model.Partition
 	// A map of partition keys to partitions
-	Map map[string]model.Partition
+	Map map[model.PartitionKey]model.Partition
 }
 
 type InMemoryStore struct {
-	// Map of domains, by string domain key
-	domains map[string]model.Domain
-	// Map of partitionStores, by string domain key
-	partitions map[string]partitionStore
+	// Map of domains, by domain key
+	domains map[model.DomainKey]model.Domain
+	// Map of partitionStores, by domain key
+	partitions map[model.DomainKey]partitionStore
 	requests   chan operation
 	stop       chan bool
 	running    bool
@@ -23,8 +23,8 @@ type InMemoryStore struct {
 
 func NewInMemoryStore() *InMemoryStore {
 	s := &InMemoryStore{
-		domains:    make(map[string]model.Domain),
-		partitions: make(map[string]partitionStore),
+		domains:    make(map[model.DomainKey]model.Domain),
+		partitions: make(map[model.DomainKey]partitionStore),
 		requests:   make(chan operation),
 		stop:       make(chan bool),
 		running:    false,
@@ -62,9 +62,9 @@ func (s *InMemoryStore) Stop() {
 
 func (s *InMemoryStore) AppendNewDomain(d model.Domain) (*model.Domain, error) {
 	container := newDomainOp(func(op *domainOp) {
-		_, ok := s.domains[d.DomainKey]
+		_, ok := s.domains[d.Key]
 		if !ok {
-			s.domains[d.DomainKey] = d
+			s.domains[d.Key] = d
 			op.Domain = &d
 		}
 	})
@@ -82,9 +82,9 @@ func (s *InMemoryStore) GetDomainKeys(boundaryKey string, limit int, reverse boo
 }
 */
 
-func (s *InMemoryStore) GetDomain(domainKey string) (*model.Domain, error) {
+func (s *InMemoryStore) GetDomain(key model.DomainKey) (*model.Domain, error) {
 	container := newDomainOp(func(op *domainOp) {
-		got, ok := s.domains[domainKey]
+		got, ok := s.domains[key]
 		if ok {
 			op.Domain = &got
 		}

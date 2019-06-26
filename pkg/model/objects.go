@@ -50,19 +50,19 @@ type SourceRegistrations map[string]SourceRegistration
 type SourceMap map[string]SourceRegistrations
 
 type Partition struct {
-	Key     string
+	Key     PartitionKey
 	Attrs   util.StringKVPairs
 	Sources SourceMap
 }
 
 type Domain struct {
-	DomainKey string
-	Attrs     util.StringKVPairs
+	Key   DomainKey
+	Attrs util.StringKVPairs
 	// Partitions map[string]Partition
 }
 
 func (d Domain) Equals(other Domain) bool {
-	if d.DomainKey != other.DomainKey {
+	if d.Key != other.Key {
 		return false
 	}
 	return hashKVPairs(d.Attrs) == hashKVPairs(other.Attrs)

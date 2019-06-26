@@ -15,15 +15,15 @@ func makeTestDomain(i int, keyvals ...string) model.Domain {
 		attrs[k] = v
 	}
 	return model.Domain{
-		DomainKey: fmt.Sprintf("test-domain-%03d", i),
-		Attrs:     util.NewStringKVPairs(attrs),
+		Key:   model.DomainKey(fmt.Sprintf("test-domain-%03d", i)),
+		Attrs: util.NewStringKVPairs(attrs),
 	}
 }
 
 func TestGetDomainEmpty(t *testing.T) {
 	s := NewInMemoryStore()
 	defer s.Stop()
-	d, e := s.GetDomain("some-domain")
+	d, e := s.GetDomain(model.DomainKey("some-domain"))
 	if d != nil && e != nil {
 		t.Error("GetDomain on empty store should result in nil")
 	}
@@ -56,7 +56,7 @@ func TestAppendNewDomainSuccess(t *testing.T) {
 		t.Errorf("Redundant append should give nil, non-error result (result: %s; error: %s", r, e)
 	}
 
-	r, e = s.GetDomain(d1.DomainKey)
+	r, e = s.GetDomain(d1.Key)
 	if e != nil {
 		t.Fatal("Should not return an error")
 	}
@@ -64,7 +64,7 @@ func TestAppendNewDomainSuccess(t *testing.T) {
 		t.Fatalf("did not return an equal copy of the retrieved domain (got %s; expected %s", r, d1)
 	}
 
-	r, e = s.GetDomain(d2.DomainKey)
+	r, e = s.GetDomain(d2.Key)
 	if e != nil {
 		t.Fatal("Should not return an error")
 	}
