@@ -25,6 +25,13 @@ func (p StringKVPairs) WriteTo(w io.Writer) {
 		w.Write(nullChar)
 	}
 }
+func (p StringKVPairs) ToMap() map[string]string {
+	m := make(map[string]string)
+	for _, pair := range p {
+		m[pair.Key] = pair.Value
+	}
+	return m
+}
 
 func NewStringKVPairs(m map[string]string) StringKVPairs {
 	pairs := make(StringKVPairs, len(m))

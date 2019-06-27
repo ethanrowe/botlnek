@@ -67,3 +67,28 @@ func (d Domain) Equals(other Domain) bool {
 	}
 	return hashKVPairs(d.Attrs) == hashKVPairs(other.Attrs)
 }
+
+// Helper type for json conversion
+type domainJson struct {
+	Key   DomainKey
+	Attrs map[string]string
+}
+
+func (d Domain) MarshalJSON() ([]byte, error) {
+	return json.Marshal(
+		domainJson{
+			Key:   d.Key,
+			Attrs: d.Attrs.ToMap(),
+		},
+	)
+}
+
+func (d *Domain) UnmarshalJSON(data []byte) error {
+	var intermediary domainJson
+	err := json.Unmarshal(data, &intermediary)
+	if err == nil {
+		d.Key = intermediary.Key
+		d.Attrs = util.NewStringKVPairs(intermediary.Attrs)
+	}
+	return err
+}

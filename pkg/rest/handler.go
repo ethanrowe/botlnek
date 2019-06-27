@@ -17,6 +17,9 @@ type jsonResponse struct {
 }
 
 func (j *jsonResponse) MarshalJSON() ([]byte, error) {
+	if j.payload == nil {
+		return nil, nil
+	}
 	return json.Marshal(&j.payload)
 }
 
@@ -62,19 +65,28 @@ func (h JsonHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		result = NewJsonErrorResponse(500, err)
 	}
+
 	body, err := result.MarshalJSON()
 
 	if err != nil {
 		// respond with a plaintext error since we failed to marhal
 		// to JSON.
 		http.Error(w, err.Error(), 500)
+		return
 	}
 
 	// Set the headers first lest they become trailers
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	header := w.Header()
+	if body == nil {
+		header.Set("Content-Length", "0")
+	} else {
+		header.Set("Content-Type", "application/json")
+		header.Set("Content-Length", strconv.Itoa(len(body)))
+	}
 	w.WriteHeader(result.StatusCode())
-	w.Write(body)
+	if body != nil {
+		w.Write(body)
+	}
 }
 
 func NewJsonHandler(handler func(*http.Request) (JsonResponder, error)) http.Handler {
