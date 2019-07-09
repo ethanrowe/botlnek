@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSourceKeyHash(t *testing.T) {
@@ -19,7 +20,6 @@ func TestSourceKeyHash(t *testing.T) {
 			"z":        "zi",
 			"aardvark": "huh?",
 		},
-		Location: "irrelevant",
 	}.KeyHash()
 
 	hash := sha256.New()
@@ -138,5 +138,159 @@ func TestDomainJsonUnmarshaling(t *testing.T) {
 
 	if !expected.Equals(got) {
 		t.Fatalf("Mismatch; expected %q but received %q", expected, got)
+	}
+}
+
+type testCounter string
+
+func (c testCounter) Cmp(a, b Counter) int {
+	as, bs := string(a.(testCounter)), string(b.(testCounter))
+	if as < bs {
+		return -1
+	} else if as == bs {
+		return 0
+	}
+	return 1
+}
+
+func (c testCounter) Less(a, b Counter) bool {
+	return string(a.(testCounter)) < string(b.(testCounter))
+}
+
+type testJsonSourceReg struct {
+	SeqNum      string
+	Approximate string
+	Keys        map[string]string
+	Attrs       map[string]string
+}
+
+func exampleSourceReg(seqnum string) (SourceRegistration, testJsonSourceReg) {
+	keys, attrs := make(map[string]string), make(map[string]string)
+	keys[fmt.Sprintf("%s-key", seqnum)] = fmt.Sprintf("%s-value", seqnum)
+	keys[fmt.Sprintf("key-%s", seqnum)] = fmt.Sprintf("value-%s", seqnum)
+	attrs[fmt.Sprintf("%s-attr", seqnum)] = fmt.Sprintf("%s-value", seqnum)
+	attrs[fmt.Sprintf("attr-%s", seqnum)] = fmt.Sprintf("value-%s", seqnum)
+	t := SourceRegistration{
+		ClockEntry{testCounter(seqnum), time.Now()},
+		Source{keys, attrs},
+	}
+	return t, testJsonSourceReg{
+		SeqNum:      seqnum,
+		Approximate: t.Approximate.Format(time.RFC3339Nano),
+		Keys:        keys,
+		Attrs:       attrs,
+	}
+}
+
+type testSourcePair struct {
+	Reg  SourceRegistration
+	Mock testJsonSourceReg
+	Key  string
+}
+
+func newTestSourcePair(reg SourceRegistration, mock testJsonSourceReg) testSourcePair {
+	key := hashKVPairs(util.NewStringKVPairs(mock.Keys))
+	return testSourcePair{Reg: reg, Mock: mock, Key: key}
+}
+
+func exampleSourceRegs(prefix string) chan testSourcePair {
+	c := make(chan testSourcePair)
+	go func() {
+		i := 0
+		for {
+			reg, mock := exampleSourceReg(fmt.Sprintf("%s-%06d", prefix, i))
+			c <- newTestSourcePair(reg, mock)
+			i++
+		}
+	}()
+	return c
+}
+
+func TestPartitionJsonMarshaling(t *testing.T) {
+	// A nasty structure representing our expected JSON
+	// result, from which we can build the model object.
+	// Note that Sources is a map of string source tokens
+	// to a map of string keys (source keys) to lists of sources
+	// (multiple sources could have the same key in this example,
+	// if for instance an admin wanted to forcibly register the
+	// same event due to a rebuilt input)
+	sources := exampleSourceRegs("part-marshal")
+	src_foo_a := <-sources
+	src_foo_b := <-sources
+	src_bar_a := <-sources
+	src_bar_b := <-sources
+	src_baz_a := <-sources
+	src_baz_b := <-sources
+
+	jsonable := struct {
+		Key     string
+		Attrs   map[string]string
+		Sources map[string]map[string]testJsonSourceReg
+	}{
+		"a-partition-key",
+		map[string]string{
+			"foo-part-attr": "foo-part-attr-val",
+			"bar-part-attr": "bar-part-attr-val",
+		},
+		map[string]map[string]testJsonSourceReg{
+			"foo-token": map[string]testJsonSourceReg{
+				src_foo_a.Key: src_foo_a.Mock,
+				src_foo_b.Key: src_foo_b.Mock,
+			},
+			"bar-token": map[string]testJsonSourceReg{
+				src_bar_a.Key: src_bar_a.Mock,
+				src_bar_b.Key: src_bar_b.Mock,
+			},
+			"baz-token": map[string]testJsonSourceReg{
+				src_baz_a.Key: src_baz_a.Mock,
+				src_baz_b.Key: src_baz_b.Mock,
+			},
+		},
+	}
+
+	part := Partition{
+		Key:   PartitionKey(jsonable.Key),
+		Attrs: jsonable.Attrs,
+		Sources: SourceMap{
+			"foo-token": SourceRegistrations{
+				src_foo_a.Key: src_foo_a.Reg,
+				src_foo_b.Key: src_foo_b.Reg,
+			},
+			"bar-token": SourceRegistrations{
+				src_bar_a.Key: src_bar_a.Reg,
+				src_bar_b.Key: src_bar_b.Reg,
+			},
+			"baz-token": SourceRegistrations{
+				src_baz_a.Key: src_baz_a.Reg,
+				src_baz_b.Key: src_baz_b.Reg,
+			},
+		},
+	}
+
+	partData, err := json.Marshal(part)
+	if err != nil {
+		t.Fatalf("Failure marshalling partition: %s", err)
+	}
+
+	specData, err := json.Marshal(jsonable)
+	if err != nil {
+		t.Fatalf("Failure marshalling jsonable representation: %s", err)
+	}
+
+	// We don't want byte-level comparison; we want to see that the unmarshalled
+	// representations of the data are equivalent.
+	var fromPartData, fromSpecData interface{}
+	err = json.Unmarshal(partData, &fromPartData)
+	if err != nil {
+		t.Fatalf("Failure unmarshalling partition-derived JSON: %s", err)
+	}
+
+	err = json.Unmarshal(specData, &fromSpecData)
+	if err != nil {
+		t.Fatalf("Failure unmarshalling spec-derived JSON: %s", err)
+	}
+
+	if !reflect.DeepEqual(fromPartData, fromSpecData) {
+		t.Errorf("Partition-based JSON structure doesn't match expectation (\n\tgot: %q\n\texpected: %q)", fromPartData, fromSpecData)
 	}
 }

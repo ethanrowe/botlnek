@@ -22,18 +22,16 @@ type Counter interface {
 	Cmp(a, b Counter) int
 	// a < b; for the sort package
 	Less(a, b Counter) bool
-	json.Marshaler
-	json.Unmarshaler
 }
 
 type ClockEntry struct {
-	Count       Counter
+	SeqNum      Counter
 	Approximate time.Time
 }
 
 type Source struct {
-	Keys     map[string]string
-	Location string
+	Keys  map[string]string
+	Attrs map[string]string
 }
 
 func (s Source) KeyHash() string {
@@ -51,7 +49,7 @@ type SourceMap map[string]SourceRegistrations
 
 type Partition struct {
 	Key     PartitionKey
-	Attrs   util.StringKVPairs
+	Attrs   map[string]string
 	Sources SourceMap
 }
 

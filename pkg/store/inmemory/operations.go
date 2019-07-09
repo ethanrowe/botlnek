@@ -39,6 +39,20 @@ func (op *domainOp) Do() {
 	op.doer(op)
 }
 
+type sourceOp struct {
+	doer   func(*sourceOp)
+	Source *model.Source
+	Err    error
+}
+
+func newSourceOp(op func(*sourceOp)) *sourceOp {
+	return &sourceOp{doer: op}
+}
+
+func (op *sourceOp) Do() {
+	op.doer(op)
+}
+
 type partitionOp struct {
 	doer      func(*partitionOp)
 	Partition *model.Partition
