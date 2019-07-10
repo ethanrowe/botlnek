@@ -13,8 +13,10 @@ func main() {
 
 	store := inmemory.NewInMemoryStore()
 	app := &rest.RestApplication{
-		DomainWriter: store,
-		DomainReader: store,
+		DomainWriter:    store,
+		DomainReader:    store,
+		PartitionWriter: store,
+		PartitionReader: store,
 	}
 	app.ApplyRoutes(mux)
 

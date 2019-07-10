@@ -53,6 +53,20 @@ type Partition struct {
 	Sources SourceMap
 }
 
+func (p Partition) MarshalJSON() ([]byte, error) {
+	return json.Marshal(
+		struct {
+			Key     PartitionKey
+			Attrs   map[string]string
+			Sources SourceMap
+		}{
+			p.Key,
+			p.Attrs,
+			p.Sources,
+		},
+	)
+}
+
 type Domain struct {
 	Key   DomainKey
 	Attrs util.StringKVPairs

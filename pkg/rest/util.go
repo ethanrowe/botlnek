@@ -29,3 +29,15 @@ func DomainFromRequest(r *http.Request) (m model.Domain, e error) {
 	}
 	return
 }
+
+func SourceFromRequest(r *http.Request) (s model.Source, e error) {
+	decoder, e := JsonBodyDecoder(r)
+	if e != nil {
+		return
+	}
+	e = decoder.Decode(&s)
+	if e == nil && decoder.More() {
+		e = errors.New("Only one object can be provided in the body")
+	}
+	return
+}

@@ -11,3 +11,11 @@ type DomainWriter interface {
 type DomainReader interface {
 	GetDomain(DomainKey) (*Domain, error)
 }
+
+type PartitionWriter interface {
+	AppendNewSource(DomainKey, PartitionKey, string, Source) (*Source, error)
+}
+
+type PartitionReader interface {
+	GetPartition(DomainKey, PartitionKey) (*Partition, error)
+}

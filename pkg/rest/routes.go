@@ -2,6 +2,7 @@ package rest
 
 import (
 	"errors"
+	"fmt"
 	"github.com/ethanrowe/botlnek/pkg/model"
 	"net/http"
 	"strings"
@@ -21,8 +22,10 @@ func HelloWorldRoute(r *http.Request) (JsonResponder, error) {
 }
 
 type RestApplication struct {
-	DomainWriter model.DomainWriter
-	DomainReader model.DomainReader
+	DomainWriter    model.DomainWriter
+	DomainReader    model.DomainReader
+	PartitionWriter model.PartitionWriter
+	PartitionReader model.PartitionReader
 }
 
 func (app *RestApplication) DomainsCollectionRoute(r *http.Request) (JsonResponder, error) {
@@ -70,11 +73,48 @@ func (app *RestApplication) DomainRoute(r *http.Request) (JsonResponder, error) 
 }
 
 func (app *RestApplication) PartitionsRoute(r *http.Request) (JsonResponder, error) {
-	if r.Method == http.MethodPost {
-		// For now just accept.
-		return NewJsonResponse(202, "partition accepted"), nil
+	keys := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/partitions/"), "/", 3)
+	fmt.Printf("PartitionsRoute path %q: %q\n", r.URL.Path, keys)
+
+	switch r.Method {
+	case http.MethodGet:
+		if len(keys) == 2 {
+			p, e := app.PartitionReader.GetPartition(model.DomainKey(keys[0]), model.PartitionKey(keys[1]))
+			if p != nil {
+				return NewJsonResponse(http.StatusOK, p), e
+			}
+		}
+		return NewJsonResponse(http.StatusNotFound, nil), nil
+	case http.MethodPost:
+		var e error
+		fmt.Println("POST case")
+		if len(keys) == 3 {
+			fmt.Println("Parsing source from body")
+			s, e := SourceFromRequest(r)
+			if e == nil {
+				fmt.Printf("Appending source: %q\n", s)
+				resp, e := app.PartitionWriter.AppendNewSource(
+					model.DomainKey(keys[0]),
+					model.PartitionKey(keys[1]),
+					keys[2],
+					s,
+				)
+				if e != nil {
+					fmt.Println("Error during append")
+					return nil, e
+				}
+				if resp == nil {
+					return NewJsonResponse(http.StatusAccepted, nil), nil
+				}
+				return NewJsonResponse(http.StatusCreated, nil), nil
+			}
+			fmt.Println("Error parsing:", e)
+			return nil, e
+		}
+		return NewJsonErrorResponse(http.StatusNotFound, nil), e
+	default:
+		return NewJsonErrorResponse(http.StatusMethodNotAllowed, errors.New("Only GET and POST supported")), nil
 	}
-	return NewJsonErrorResponse(http.StatusMethodNotAllowed, errors.New("Only POST supported")), nil
 }
 
 func HandleJsonRoute(mux *http.ServeMux, pattern string, h func(*http.Request) (JsonResponder, error)) {
