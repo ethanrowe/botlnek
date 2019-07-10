@@ -27,13 +27,13 @@ func (c InMemoryCounter) Less(a, b model.Counter) bool {
 	return int64(a.(InMemoryCounter)) < int64(b.(InMemoryCounter))
 }
 
-func (c InMemoryCounter) MarshalJson() ([]byte, error) {
+func (c InMemoryCounter) MarshalJSON() ([]byte, error) {
 	return json.Marshal(
 		fmt.Sprintf(COUNTER_FORMAT_STRING, int64(c)),
 	)
 }
 
-func (c *InMemoryCounter) UnmarshalJson(data []byte) error {
+func (c *InMemoryCounter) UnmarshalJSON(data []byte) error {
 	var s string
 	err := json.Unmarshal(data, &s)
 	if err != nil {
