@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set +e
+
+SERVER=http://127.0.0.1:8080
+
+post() {
+  curl -v --post303 --data-binary "$2" -H 'Content-Type: application/json' $SERVER/$1
+  return $?
+}
+
+get() {
+  curl -v $SERVER/$1
+  return $?
+}
+
+getjson() {
+  curl -v $SERVER/$1 | jq '.'
+  return $?
+}
+
+post domains '{"Key": "dom0", "Attrs": {"Foo": "Bar", "Boo": "Baz"}}'
+post domains '{"Key": "dom1", "Attrs": {"Foo": "foo", "Boo": "boo!"}}'
+post partitions/dom0/20190710/foo-sources '{"Keys": {"asof": "2019-07-10T11:28:10Z"}, "Attrs": {"series": "foo-series"}}'
+post partitions/dom0/20190710/bar-sources '{"Keys": {"asof": "2019-07-10T11:50:05Z"}, "Attrs": {"series": "bar-series"}}'
+getjson partitions/dom0/20190710
+
+post partitions/dom0/20190710/foo-sources '{"Keys": {"asof": "2019-07-10T11:57:00Z"}, "Attrs": {"series": "foo-series"}}'
+getjson partitions/dom0/20190710
+
