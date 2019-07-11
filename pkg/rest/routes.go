@@ -26,6 +26,7 @@ type RestApplication struct {
 	DomainReader    model.DomainReader
 	PartitionWriter model.PartitionWriter
 	PartitionReader model.PartitionReader
+	EventSource     model.MutationNotifier
 }
 
 func (app *RestApplication) DomainsCollectionRoute(r *http.Request) (JsonResponder, error) {
@@ -117,6 +118,39 @@ func (app *RestApplication) PartitionsRoute(r *http.Request) (JsonResponder, err
 	}
 }
 
+func (app *RestApplication) SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+
+	closer := w.(http.CloseNotifier).CloseNotify()
+	events := make(chan []byte, 10)
+
+	// We'll initialize with an informational event.
+	events <- []byte("{\"info\": \"subscription started\"}")
+
+	done := app.EventSource.SubscribeToMutations(events)
+
+	defer func() {
+		done <- true
+		close(events)
+		close(done)
+	}()
+
+	for {
+		select {
+		case event := <-events:
+			fmt.Fprintf(w, "%s\n", event)
+			w.(http.Flusher).Flush()
+		case <-closer:
+			break
+		}
+	}
+
+	return
+}
+
 func HandleJsonRoute(mux *http.ServeMux, pattern string, h func(*http.Request) (JsonResponder, error)) {
 	mux.Handle(pattern, NewJsonHandler(h))
 }
@@ -131,4 +165,6 @@ func (app *RestApplication) ApplyRoutes(mux *http.ServeMux) {
 	// Post a new partition
 	// Get an existing partition
 	HandleJsonRoute(mux, "/partitions/", app.PartitionsRoute)
+	// Example notification route just for the prototype
+	mux.Handle("/events", http.HandlerFunc(app.SubscriptionHandler))
 }

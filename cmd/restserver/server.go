@@ -17,6 +17,7 @@ func main() {
 		DomainReader:    store,
 		PartitionWriter: store,
 		PartitionReader: store,
+		EventSource:     store,
 	}
 	app.ApplyRoutes(mux)
 
