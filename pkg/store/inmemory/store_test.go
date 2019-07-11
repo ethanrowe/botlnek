@@ -1,6 +1,7 @@
 package inmemory
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/ethanrowe/botlnek/pkg/model"
 	"github.com/ethanrowe/botlnek/pkg/util"
@@ -173,7 +174,6 @@ func (s scenario) verify(store *InMemoryStore) (r bool, err error) {
 			seqnos := make([]model.Counter, len(sources))
 
 			for i, source := range sources {
-				fmt.Printf("Verifying source: %q\n\n", source)
 				expectPerToken[source.Token]++
 				// Find the token
 				tks, ok := part.Sources[source.Token]
@@ -256,7 +256,6 @@ func TestAppendNewSource(t *testing.T) {
 	for _, part := range parts {
 		for _, tok := range tokens {
 			for _, src := range sources {
-				fmt.Printf("Adding expectation for domain %q partition %q token %q source: %q", d1.Key, part, tok, src)
 				expectations.expect(d1.Key, part, tok, src)
 				res, err := s.AppendNewSource(d1.Key, part, tok, src)
 				if err != nil {
@@ -292,4 +291,96 @@ func TestAppendNewSource(t *testing.T) {
 		}
 	}
 
+}
+
+func TestAppendNewSourceNotification(t *testing.T) {
+	s := NewInMemoryStore()
+	defer s.Stop()
+
+	partkeyGen := generateTestPartitionKeys("sourceappend-notify")
+	tokenGen := generateTestTokens("sourceappend-notify")
+	sourceGen := generateTestSources("sourceappend-notify")
+
+	d := makeTestDomain(0, "I", "notify", "on", "source-append")
+	r, e := s.AppendNewDomain(d)
+	if e != nil {
+		t.Fatalf("Failed to append domain: %s", e)
+	}
+	if r == nil {
+		t.Fatal("Test domain wasn't unique!")
+	}
+
+	pk := <-partkeyGen
+	tk := <-tokenGen
+
+	sources := []model.Source{<-sourceGen, <-sourceGen, <-sourceGen}
+
+	// Buffer to the expected number of messages so we don't have to
+	// worry about missing messages due to non-blocking send.
+	events := make(chan []byte, len(sources))
+	// Subscribing gives us a channel for signaling completion.
+	done := s.SubscribeToMutations(events)
+
+	// We expect a full representation of the partition with every
+	// new source.
+	// For now, I'm just gonna verify that the sources are there.
+	expectedSources := make([]map[string]model.Source, len(sources))
+	for i, source := range sources {
+		expected := make(map[string]model.Source)
+		for _, earlierSource := range sources[:i+1] {
+			expected[earlierSource.KeyHash()] = earlierSource
+		}
+		expectedSources[i] = expected
+		fmt.Println("Appending source:", d.Key, pk, tk, source)
+		resp, err := s.AppendNewSource(d.Key, pk, tk, source)
+		if err != nil {
+			t.Fatalf("Failed appending source %q: %s", source, err)
+		}
+		if resp == nil {
+			t.Fatalf("Appended source not unique: %q", source)
+		}
+	}
+
+	fmt.Println("checking expectations")
+	// Now we verify that we received a bunch of json messages, the source contents
+	// of which align with our expectations above.
+	// Our test for now ignores some other stuff like clock comparisons.
+	for i := 0; i < len(sources); i++ {
+		rawReceived := <-events
+		if rawReceived == nil {
+			t.Fatalf("Received empty message")
+		}
+		received := struct {
+			DomainKey model.DomainKey
+			Partition struct {
+				Key     model.PartitionKey
+				Attrs   map[string]string
+				Sources map[string]map[string]model.Source
+			}
+		}{}
+		err := json.Unmarshal(rawReceived, &received)
+		if err != nil {
+			t.Fatalf("Failed to unmarshal notification: %s", err)
+		}
+
+		if received.DomainKey != d.Key {
+			t.Errorf("Domain key mismatch; got %q, expected %q", received.DomainKey, d.Key)
+		}
+
+		if received.Partition.Key != pk {
+			t.Errorf("Partition key mistmatch; got %q, expected %q", received.Partition.Key, pk)
+		}
+
+		receivedSources, ok := received.Partition.Sources[tk]
+		if !ok {
+			t.Fatalf("Missing partition token %q", tk)
+		}
+
+		if !reflect.DeepEqual(receivedSources, expectedSources[i]) {
+			t.Errorf("Mismatch of sources:\n\tExpected %q\n\tReceived %q\n", expectedSources[i], receivedSources)
+		}
+	}
+
+	close(events)
+	done <- true
 }

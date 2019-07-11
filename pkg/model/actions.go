@@ -19,3 +19,8 @@ type PartitionWriter interface {
 type PartitionReader interface {
 	GetPartition(DomainKey, PartitionKey) (*Partition, error)
 }
+
+type MutationNotifier interface {
+	SubscribeToMutations(chan []byte) chan interface{}
+	NotifyMutationSubscribers(interface{}) error
+}

@@ -1,7 +1,6 @@
 package inmemory
 
 import (
-	"fmt"
 	"github.com/ethanrowe/botlnek/pkg/model"
 	"time"
 )
@@ -46,6 +45,7 @@ type InMemoryStore struct {
 	requests   chan operation
 	stop       chan bool
 	running    bool
+	notifier   *JSONNotifier
 }
 
 func NewInMemoryStore() *InMemoryStore {
@@ -55,6 +55,12 @@ func NewInMemoryStore() *InMemoryStore {
 		requests:   make(chan operation),
 		stop:       make(chan bool),
 		running:    false,
+		notifier: &JSONNotifier{
+			notifications: make(chan []byte),
+			joins:         make(chan chan []byte),
+			exits:         make(chan chan []byte),
+			clients:       make(map[chan []byte]bool),
+		},
 	}
 	go s.Run()
 	return s
@@ -70,6 +76,11 @@ func (s *InMemoryStore) Submit(op operation) operation {
 
 func (s *InMemoryStore) Run() {
 	s.running = true
+
+	if s.notifier != nil {
+		go s.notifier.Run()
+	}
+
 	for {
 		select {
 		case op := <-s.requests:
@@ -80,6 +91,11 @@ func (s *InMemoryStore) Run() {
 	}
 	close(s.requests)
 	close(s.stop)
+
+	if s.notifier != nil {
+		s.notifier.stop <- true
+	}
+
 	s.running = false
 }
 
@@ -124,24 +140,20 @@ func (s *InMemoryStore) AppendNewSource(domain model.DomainKey, partition model.
 	container := newSourceOp(func(op *sourceOp) {
 		parts, ok := s.partitions[domain]
 		if !ok {
-			fmt.Printf("Initialized partition store for domain %s\n", string(domain))
 			parts = newPartitionStore()
 		}
 		partContainer, ok := parts.Map[partition]
 		if !ok {
-			fmt.Printf("Initialize container for partition %s\n", string(partition))
 			partContainer = newPartitionContainer(partition)
 		}
 		registrations, ok := partContainer.Partition.Sources[token]
 		if !ok {
-			fmt.Printf("Initialized registrations for token %s\n", token)
 			registrations = make(model.SourceRegistrations)
 		}
 		srckey := source.KeyHash()
 		reg, ok := registrations[srckey]
 		// This is a new reg if it's not present already.
 		if !ok {
-			fmt.Printf("New registration of source key %s: %q\n", srckey, source)
 			reg = model.SourceRegistration{
 				model.ClockEntry{
 					partContainer.next(),
@@ -151,9 +163,7 @@ func (s *InMemoryStore) AppendNewSource(domain model.DomainKey, partition model.
 			}
 			op.Source = &source
 		}
-		fmt.Printf("Append operation state: %q and %q\n", op.Source, op.Err)
 		if op.Err == nil && op.Source != nil {
-			fmt.Println("New source, updating state")
 			// In this case it's a new entry, so mutate the
 			// store.  Our mutations are confined to a single
 			// goroutine, so this is safe.
@@ -161,6 +171,12 @@ func (s *InMemoryStore) AppendNewSource(domain model.DomainKey, partition model.
 			partContainer.Partition.Sources[token] = registrations
 			parts.Map[partition] = partContainer
 			s.partitions[domain] = parts
+
+			// And notify, ignoring errors.
+			_ = s.NotifyMutationSubscribers(model.PartitionMessage{
+				DomainKey: domain,
+				Partition: partContainer.Partition,
+			})
 		}
 	})
 	s.Submit(container)
@@ -190,4 +206,12 @@ func (s *InMemoryStore) GetPartition(domain model.DomainKey, partition model.Par
 	})
 	s.Submit(container)
 	return container.Partition, container.Err
+}
+
+func (s *InMemoryStore) SubscribeToMutations(client chan []byte) chan interface{} {
+	return s.notifier.Subscribe(client)
+}
+
+func (s *InMemoryStore) NotifyMutationSubscribers(message interface{}) error {
+	return s.notifier.Notify(message)
 }
