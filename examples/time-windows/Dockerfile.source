@@ -1,0 +1,7 @@
+FROM golang:1.12.5
+RUN mkdir /go/src/botlnek-example
+COPY source.go /go/src/botlnek-example
+WORKDIR /go/src/botlnek-example
+RUN go build source.go
+ENTRYPOINT ["./source"]
+

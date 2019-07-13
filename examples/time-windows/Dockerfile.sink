@@ -1,0 +1,4 @@
+FROM ubuntu:18.04
+RUN apt-get update
+RUN apt-get install -y jq curl
+ENTRYPOINT ["stdbuf", "-i0", "-o0", "-e0", "/bin/bash"]

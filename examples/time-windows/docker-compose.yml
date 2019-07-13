@@ -1,0 +1,87 @@
+version: "3.2"
+
+services:
+  rest:
+    build:
+      context: "../../"
+    networks:
+      - botlnek
+    expose:
+      - "8080"
+    ports:
+      - "8080"
+
+  sink:
+    build:
+      context: "."
+      dockerfile: "Dockerfile.sink"
+    networks:
+      - botlnek
+    depends_on:
+      - rest
+    command:
+      - "-c"
+      - "curl http://rest:8080/events | jq '.'"
+  publisher-a-a:
+    build:
+      context: "."
+      dockerfile: "Dockerfile.source"
+    networks:
+      - botlnek
+    depends_on:
+      - rest
+    command:
+      - "rest:8080"
+      - "dom-a"
+      - "src-a"
+      - "1m"
+      - "20s"
+
+  publisher-a-b:
+    build:
+      context: "."
+      dockerfile: "Dockerfile.source"
+    networks:
+      - botlnek
+    depends_on:
+      - rest
+    command:
+      - "rest:8080"
+      - "dom-a"
+      - "src-b"
+      - "1m"
+      - "30s"
+
+  publisher-b-a:
+    build:
+      context: "."
+      dockerfile: "Dockerfile.source"
+    networks:
+      - botlnek
+    depends_on:
+      - rest
+    command:
+      - "rest:8080"
+      - "dom-b"
+      - "src-a"
+      - "45s"
+      - "30s"
+
+  publisher-b-b:
+    build:
+      context: "."
+      dockerfile: "Dockerfile.source"
+    networks:
+      - botlnek
+    depends_on:
+      - rest
+    command:
+      - "rest:8080"
+      - "dom-b"
+      - "src-b"
+      - "45s"
+      - "40s"
+
+networks:
+  botlnek:
+
