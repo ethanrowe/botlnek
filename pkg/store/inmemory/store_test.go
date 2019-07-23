@@ -22,14 +22,14 @@ func makeTestDomain(i int, keyvals ...string) model.Domain {
 	}
 }
 
-func generateTestPartitionKeys(prefix string) chan model.PartitionKey {
+func generateTestAggregateKeys(prefix string) chan model.AggregateKey {
 	count := int64(0)
-	chn := make(chan model.PartitionKey)
+	chn := make(chan model.AggregateKey)
 	go func() {
 		for {
-			key := fmt.Sprintf("partition-%s-%d", prefix, count)
+			key := fmt.Sprintf("aggregate-%s-%d", prefix, count)
 			count++
-			chn <- model.PartitionKey(key)
+			chn <- model.AggregateKey(key)
 		}
 	}()
 	return chn
@@ -136,30 +136,30 @@ func newScenarioSource(source model.Source, token string) scenarioSource {
 	}
 }
 
-type scenario map[model.DomainKey]map[model.PartitionKey][]scenarioSource
+type scenario map[model.DomainKey]map[model.AggregateKey][]scenarioSource
 
-func (sc scenario) expect(d model.DomainKey, p model.PartitionKey, t string, s model.Source) {
+func (sc scenario) expect(d model.DomainKey, p model.AggregateKey, t string, s model.Source) {
 	dom, ok := sc[d]
 	if !ok {
-		dom = make(map[model.PartitionKey][]scenarioSource)
+		dom = make(map[model.AggregateKey][]scenarioSource)
 		sc[d] = dom
 	}
-	part, ok := dom[p]
+	aggr, ok := dom[p]
 	if !ok {
-		part = make([]scenarioSource, 0)
-		dom[p] = part
+		aggr = make([]scenarioSource, 0)
+		dom[p] = aggr
 	}
-	dom[p] = append(part, newScenarioSource(s, t))
+	dom[p] = append(aggr, newScenarioSource(s, t))
 }
 
 func (s scenario) verify(store *InMemoryStore) (r bool, err error) {
 	r = false
-	for dk, parts := range s {
-		for pk, sources := range parts {
-			// Get the partition first.
-			part, err := store.GetPartition(dk, pk)
-			if part == nil && err == nil {
-				err = fmt.Errorf("Could not find domain %q partition %q", dk, pk)
+	for dk, aggrs := range s {
+		for pk, sources := range aggrs {
+			// Get the aggregate first.
+			aggr, err := store.GetAggregate(dk, pk)
+			if aggr == nil && err == nil {
+				err = fmt.Errorf("Could not find domain %q aggregate %q", dk, pk)
 				return r, err
 			}
 			if err != nil {
@@ -176,44 +176,44 @@ func (s scenario) verify(store *InMemoryStore) (r bool, err error) {
 			for i, source := range sources {
 				expectPerToken[source.Token]++
 				// Find the token
-				tks, ok := part.Sources[source.Token]
+				tks, ok := aggr.Sources[source.Token]
 				if !ok {
-					err = fmt.Errorf("Could not find domain %q partition %q token %q", dk, pk, source.Token)
+					err = fmt.Errorf("Could not find domain %q aggregate %q token %q", dk, pk, source.Token)
 					return r, err
 				}
 				// Find the source by deterministic key
 				src, ok := tks[source.Key]
 				if !ok {
-					err = fmt.Errorf("Could not find domain %q partition %q token %q source %q (%q)", dk, pk, source.Token, source.Key, source.Source)
+					err = fmt.Errorf("Could not find domain %q aggregate %q token %q source %q (%q)", dk, pk, source.Token, source.Key, source.Source)
 					return r, err
 				}
 				seqnos[i] = src.SeqNum
 				// Verify order.
 				if i > 0 {
 					if !src.SeqNum.Less(seqnos[i-1], src.SeqNum) {
-						err = fmt.Errorf("domain %q partition %q token %q source #%d count is out of order with source #%d (%q is not less than %q", dk, pk, source.Token, i, i-1, seqnos[i-1], src.SeqNum)
+						err = fmt.Errorf("domain %q aggregate %q token %q source #%d count is out of order with source #%d (%q is not less than %q", dk, pk, source.Token, i, i-1, seqnos[i-1], src.SeqNum)
 						return r, err
 					}
 				}
 				// Verify keys and attrs
 				if !reflect.DeepEqual(source.Source.Keys, src.Keys) {
-					err = fmt.Errorf("domain %q partition %q token %q source #%d wrong keys (wanted %q; got %q)", dk, pk, source.Token, i, source.Source.Keys, src.Keys)
+					err = fmt.Errorf("domain %q aggregate %q token %q source #%d wrong keys (wanted %q; got %q)", dk, pk, source.Token, i, source.Source.Keys, src.Keys)
 					return r, err
 				}
 				if !reflect.DeepEqual(source.Source.Attrs, src.Attrs) {
-					err = fmt.Errorf("domain %q partition %q token %q source #%d wrong attrs (wanted %q; got %q)", dk, pk, source.Token, i, source.Source.Attrs, src.Attrs)
+					err = fmt.Errorf("domain %q aggregate %q token %q source #%d wrong attrs (wanted %q; got %q)", dk, pk, source.Token, i, source.Source.Attrs, src.Attrs)
 					return r, err
 				}
 			}
 
 			// Build up the token-to-source-count mapping for
 			// population-level comparison
-			for token, srcs := range part.Sources {
+			for token, srcs := range aggr.Sources {
 				receivedPerToken[token] = len(srcs)
 			}
 
 			if !reflect.DeepEqual(expectPerToken, receivedPerToken) {
-				err = fmt.Errorf("domain %q partition %q token sources mismatch (got %q; expected %q", dk, pk, receivedPerToken, expectPerToken)
+				err = fmt.Errorf("domain %q aggregate %q token sources mismatch (got %q; expected %q", dk, pk, receivedPerToken, expectPerToken)
 				return r, err
 			}
 		}
@@ -226,7 +226,7 @@ func TestAppendNewSource(t *testing.T) {
 	s := NewInMemoryStore()
 	defer s.Stop()
 
-	partkeyGen := generateTestPartitionKeys("sourceappend")
+	aggrkeyGen := generateTestAggregateKeys("sourceappend")
 	tokenGen := generateTestTokens("sourceappend")
 	sourceGen := generateTestSources("sourceappend")
 
@@ -240,32 +240,32 @@ func TestAppendNewSource(t *testing.T) {
 	}
 
 	// Two distinct source structures; they'll get repeated
-	// across tokens and partitions.
+	// across tokens and aggregates.
 	sources := []model.Source{<-sourceGen, <-sourceGen}
-	// And two distinct tokens, that'll also get repeated across partitions.
+	// And two distinct tokens, that'll also get repeated across aggregates.
 	tokens := []string{<-tokenGen, <-tokenGen}
-	// And two distinct partitions, that we may repeat across domains.
-	parts := []model.PartitionKey{<-partkeyGen, <-partkeyGen}
+	// And two distinct aggregates, that we may repeat across domains.
+	aggrs := []model.AggregateKey{<-aggrkeyGen, <-aggrkeyGen}
 
 	// The data structure that expresses the order in which we expect to
 	// find things.
 	expectations := make(scenario)
 
-	// Add and verify in source, token, part order.
-	//expectations.expect(d1.Key, parts[0], tokens[0], sources[0])
-	for _, part := range parts {
+	// Add and verify in source, token, aggr order.
+	//expectations.expect(d1.Key, aggrs[0], tokens[0], sources[0])
+	for _, aggr := range aggrs {
 		for _, tok := range tokens {
 			for _, src := range sources {
-				expectations.expect(d1.Key, part, tok, src)
-				res, err := s.AppendNewSource(d1.Key, part, tok, src)
+				expectations.expect(d1.Key, aggr, tok, src)
+				res, err := s.AppendNewSource(d1.Key, aggr, tok, src)
 				if err != nil {
-					t.Fatalf("Failed appending domain %q, partition %q token %q source %q:\n\t%s", d1.Key, part, tok, src, err)
+					t.Fatalf("Failed appending domain %q, aggregate %q token %q source %q:\n\t%s", d1.Key, aggr, tok, src, err)
 				}
 
 				if res == nil {
-					t.Fatalf("Unexpected nil appending domain %q partition %q token %q source %q", d1.Key, part, tok, src)
+					t.Fatalf("Unexpected nil appending domain %q aggregate %q token %q source %q", d1.Key, aggr, tok, src)
 				} else if !reflect.DeepEqual(*res, src) {
-					t.Fatalf("Result mistmatch appending domain %q partition %q token %q (\n\twanted: %q\n\tgot: %q)", d1.Key, part, tok, src, *res)
+					t.Fatalf("Result mistmatch appending domain %q aggregate %q token %q (\n\twanted: %q\n\tgot: %q)", d1.Key, aggr, tok, src, *res)
 				}
 
 				passed, err := expectations.verify(s)
@@ -279,9 +279,9 @@ func TestAppendNewSource(t *testing.T) {
 				// If I do the same append again, we should get a nil
 				// pointer back, indicating no-op, and find that the
 				// state still matches the accumulated expectation.
-				res, err = s.AppendNewSource(d1.Key, part, tok, src)
+				res, err = s.AppendNewSource(d1.Key, aggr, tok, src)
 				if res != nil {
-					t.Fatalf("Unexpected non-nil append result on domain %q partition %q token %q source %q", d1.Key, part, tok, src)
+					t.Fatalf("Unexpected non-nil append result on domain %q aggregate %q token %q source %q", d1.Key, aggr, tok, src)
 				}
 				passed, err = expectations.verify(s)
 				if err != nil || !passed {
@@ -297,7 +297,7 @@ func TestAppendNewSourceNotification(t *testing.T) {
 	s := NewInMemoryStore()
 	defer s.Stop()
 
-	partkeyGen := generateTestPartitionKeys("sourceappend-notify")
+	aggrkeyGen := generateTestAggregateKeys("sourceappend-notify")
 	tokenGen := generateTestTokens("sourceappend-notify")
 	sourceGen := generateTestSources("sourceappend-notify")
 
@@ -310,7 +310,7 @@ func TestAppendNewSourceNotification(t *testing.T) {
 		t.Fatal("Test domain wasn't unique!")
 	}
 
-	pk := <-partkeyGen
+	pk := <-aggrkeyGen
 	tk := <-tokenGen
 
 	sources := []model.Source{<-sourceGen, <-sourceGen, <-sourceGen}
@@ -321,7 +321,7 @@ func TestAppendNewSourceNotification(t *testing.T) {
 	// Subscribing gives us a channel for signaling completion.
 	done := s.SubscribeToMutations(events)
 
-	// We expect a full representation of the partition with every
+	// We expect a full representation of the aggregate with every
 	// new source.
 	// For now, I'm just gonna verify that the sources are there.
 	expectedSources := make([]map[string]model.Source, len(sources))
@@ -352,8 +352,8 @@ func TestAppendNewSourceNotification(t *testing.T) {
 		}
 		received := struct {
 			DomainKey model.DomainKey
-			Partition struct {
-				Key     model.PartitionKey
+			Aggregate struct {
+				Key     model.AggregateKey
 				Attrs   map[string]string
 				Sources map[string]map[string]model.Source
 			}
@@ -367,13 +367,13 @@ func TestAppendNewSourceNotification(t *testing.T) {
 			t.Errorf("Domain key mismatch; got %q, expected %q", received.DomainKey, d.Key)
 		}
 
-		if received.Partition.Key != pk {
-			t.Errorf("Partition key mistmatch; got %q, expected %q", received.Partition.Key, pk)
+		if received.Aggregate.Key != pk {
+			t.Errorf("Aggregate key mistmatch; got %q, expected %q", received.Aggregate.Key, pk)
 		}
 
-		receivedSources, ok := received.Partition.Sources[tk]
+		receivedSources, ok := received.Aggregate.Sources[tk]
 		if !ok {
-			t.Fatalf("Missing partition token %q", tk)
+			t.Fatalf("Missing aggregate token %q", tk)
 		}
 
 		if !reflect.DeepEqual(receivedSources, expectedSources[i]) {

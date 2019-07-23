@@ -1,7 +1,6 @@
 package model
 
-type PartitionMessage struct {
+type AggregateMessage struct {
 	DomainKey DomainKey
-	Partition Partition
+	Aggregate Aggregate
 }
-

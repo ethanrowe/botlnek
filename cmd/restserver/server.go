@@ -15,8 +15,8 @@ func main() {
 	app := &rest.RestApplication{
 		DomainWriter:    store,
 		DomainReader:    store,
-		PartitionWriter: store,
-		PartitionReader: store,
+		AggregateWriter: store,
+		AggregateReader: store,
 		EventSource:     store,
 	}
 	app.ApplyRoutes(mux)

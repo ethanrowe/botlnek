@@ -206,7 +206,7 @@ func exampleSourceRegs(prefix string) chan testSourcePair {
 	return c
 }
 
-func TestPartitionJsonMarshaling(t *testing.T) {
+func TestAggregateJsonMarshaling(t *testing.T) {
 	// A nasty structure representing our expected JSON
 	// result, from which we can build the model object.
 	// Note that Sources is a map of string source tokens
@@ -214,7 +214,7 @@ func TestPartitionJsonMarshaling(t *testing.T) {
 	// (multiple sources could have the same key in this example,
 	// if for instance an admin wanted to forcibly register the
 	// same event due to a rebuilt input)
-	sources := exampleSourceRegs("part-marshal")
+	sources := exampleSourceRegs("aggr-marshal")
 	src_foo_a := <-sources
 	src_foo_b := <-sources
 	src_bar_a := <-sources
@@ -227,10 +227,10 @@ func TestPartitionJsonMarshaling(t *testing.T) {
 		Attrs   map[string]string
 		Sources map[string]map[string]testJsonSourceReg
 	}{
-		"a-partition-key",
+		"a-aggregate-key",
 		map[string]string{
-			"foo-part-attr": "foo-part-attr-val",
-			"bar-part-attr": "bar-part-attr-val",
+			"foo-aggr-attr": "foo-aggr-attr-val",
+			"bar-aggr-attr": "bar-aggr-attr-val",
 		},
 		map[string]map[string]testJsonSourceReg{
 			"foo-token": map[string]testJsonSourceReg{
@@ -248,8 +248,8 @@ func TestPartitionJsonMarshaling(t *testing.T) {
 		},
 	}
 
-	part := Partition{
-		Key:   PartitionKey(jsonable.Key),
+	aggr := Aggregate{
+		Key:   AggregateKey(jsonable.Key),
 		Attrs: jsonable.Attrs,
 		Sources: SourceMap{
 			"foo-token": SourceRegistrations{
@@ -267,9 +267,9 @@ func TestPartitionJsonMarshaling(t *testing.T) {
 		},
 	}
 
-	partData, err := json.Marshal(part)
+	aggrData, err := json.Marshal(aggr)
 	if err != nil {
-		t.Fatalf("Failure marshalling partition: %s", err)
+		t.Fatalf("Failure marshalling aggregate: %s", err)
 	}
 
 	specData, err := json.Marshal(jsonable)
@@ -279,10 +279,10 @@ func TestPartitionJsonMarshaling(t *testing.T) {
 
 	// We don't want byte-level comparison; we want to see that the unmarshalled
 	// representations of the data are equivalent.
-	var fromPartData, fromSpecData interface{}
-	err = json.Unmarshal(partData, &fromPartData)
+	var fromAggrData, fromSpecData interface{}
+	err = json.Unmarshal(aggrData, &fromAggrData)
 	if err != nil {
-		t.Fatalf("Failure unmarshalling partition-derived JSON: %s", err)
+		t.Fatalf("Failure unmarshalling aggregate-derived JSON: %s", err)
 	}
 
 	err = json.Unmarshal(specData, &fromSpecData)
@@ -290,7 +290,7 @@ func TestPartitionJsonMarshaling(t *testing.T) {
 		t.Fatalf("Failure unmarshalling spec-derived JSON: %s", err)
 	}
 
-	if !reflect.DeepEqual(fromPartData, fromSpecData) {
-		t.Errorf("Partition-based JSON structure doesn't match expectation (\n\tgot: %q\n\texpected: %q)", fromPartData, fromSpecData)
+	if !reflect.DeepEqual(fromAggrData, fromSpecData) {
+		t.Errorf("Aggregate-based JSON structure doesn't match expectation (\n\tgot: %q\n\texpected: %q)", fromAggrData, fromSpecData)
 	}
 }

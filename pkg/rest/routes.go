@@ -24,8 +24,8 @@ func HelloWorldRoute(r *http.Request) (JsonResponder, error) {
 type RestApplication struct {
 	DomainWriter    model.DomainWriter
 	DomainReader    model.DomainReader
-	PartitionWriter model.PartitionWriter
-	PartitionReader model.PartitionReader
+	AggregateWriter model.AggregateWriter
+	AggregateReader model.AggregateReader
 	EventSource     model.MutationNotifier
 }
 
@@ -73,14 +73,14 @@ func (app *RestApplication) DomainRoute(r *http.Request) (JsonResponder, error) 
 	return NewJsonErrorResponse(http.StatusMethodNotAllowed, errors.New("Only GET is supported")), nil
 }
 
-func (app *RestApplication) PartitionsRoute(r *http.Request) (JsonResponder, error) {
-	keys := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/partitions/"), "/", 3)
-	fmt.Printf("PartitionsRoute path %q: %q\n", r.URL.Path, keys)
+func (app *RestApplication) AggregatesRoute(r *http.Request) (JsonResponder, error) {
+	keys := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/aggregates/"), "/", 3)
+	fmt.Printf("AggregatesRoute path %q: %q\n", r.URL.Path, keys)
 
 	switch r.Method {
 	case http.MethodGet:
 		if len(keys) == 2 {
-			p, e := app.PartitionReader.GetPartition(model.DomainKey(keys[0]), model.PartitionKey(keys[1]))
+			p, e := app.AggregateReader.GetAggregate(model.DomainKey(keys[0]), model.AggregateKey(keys[1]))
 			if p != nil {
 				return NewJsonResponse(http.StatusOK, p), e
 			}
@@ -94,9 +94,9 @@ func (app *RestApplication) PartitionsRoute(r *http.Request) (JsonResponder, err
 			s, e := SourceFromRequest(r)
 			if e == nil {
 				fmt.Printf("Appending source: %q\n", s)
-				resp, e := app.PartitionWriter.AppendNewSource(
+				resp, e := app.AggregateWriter.AppendNewSource(
 					model.DomainKey(keys[0]),
-					model.PartitionKey(keys[1]),
+					model.AggregateKey(keys[1]),
 					keys[2],
 					s,
 				)
@@ -162,9 +162,9 @@ func (app *RestApplication) ApplyRoutes(mux *http.ServeMux) {
 	HandleJsonRoute(mux, "/domains", app.DomainsCollectionRoute)
 	// Get a specific domain
 	HandleJsonRoute(mux, "/domains/", app.DomainRoute)
-	// Post a new partition
-	// Get an existing partition
-	HandleJsonRoute(mux, "/partitions/", app.PartitionsRoute)
+	// Post a new aggregate
+	// Get an existing aggregate
+	HandleJsonRoute(mux, "/aggregates/", app.AggregatesRoute)
 	// Example notification route just for the prototype
 	mux.Handle("/events", http.HandlerFunc(app.SubscriptionHandler))
 }

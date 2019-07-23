@@ -53,16 +53,16 @@ func (op *sourceOp) Do() {
 	op.doer(op)
 }
 
-type partitionOp struct {
-	doer      func(*partitionOp)
-	Partition *model.Partition
+type aggregateOp struct {
+	doer      func(*aggregateOp)
+	Aggregate *model.Aggregate
 	Err       error
 }
 
-func newPartitionOp(d func(*partitionOp)) *partitionOp {
-	return &partitionOp{doer: d}
+func newAggregateOp(d func(*aggregateOp)) *aggregateOp {
+	return &aggregateOp{doer: d}
 }
 
-func (op *partitionOp) Do() {
+func (op *aggregateOp) Do() {
 	op.doer(op)
 }

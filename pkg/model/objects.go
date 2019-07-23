@@ -47,16 +47,16 @@ type SourceRegistrations map[string]SourceRegistration
 
 type SourceMap map[string]SourceRegistrations
 
-type Partition struct {
-	Key     PartitionKey
+type Aggregate struct {
+	Key     AggregateKey
 	Attrs   map[string]string
 	Sources SourceMap
 }
 
-func (p Partition) MarshalJSON() ([]byte, error) {
+func (p Aggregate) MarshalJSON() ([]byte, error) {
 	return json.Marshal(
 		struct {
-			Key     PartitionKey
+			Key     AggregateKey
 			Attrs   map[string]string
 			Sources SourceMap
 		}{
@@ -70,7 +70,7 @@ func (p Partition) MarshalJSON() ([]byte, error) {
 type Domain struct {
 	Key   DomainKey
 	Attrs util.StringKVPairs
-	// Partitions map[string]Partition
+	// Aggregates map[string]Aggregate
 }
 
 func (d Domain) Equals(other Domain) bool {

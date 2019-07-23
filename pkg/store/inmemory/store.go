@@ -5,43 +5,43 @@ import (
 	"time"
 )
 
-type partitionContainer struct {
+type aggregateContainer struct {
 	Count     InMemoryCounter
-	Partition model.Partition
+	Aggregate model.Aggregate
 }
 
-func newPartitionContainer(partition model.PartitionKey) *partitionContainer {
-	return &partitionContainer{
-		Partition: model.Partition{
-			Key:     partition,
+func newAggregateContainer(aggregate model.AggregateKey) *aggregateContainer {
+	return &aggregateContainer{
+		Aggregate: model.Aggregate{
+			Key:     aggregate,
 			Sources: make(model.SourceMap),
 			Attrs:   make(map[string]string),
 		},
 	}
 }
 
-func (pc *partitionContainer) next() InMemoryCounter {
+func (pc *aggregateContainer) next() InMemoryCounter {
 	r := pc.Count
 	pc.Count = InMemoryCounter(int64(r) + 1)
 	return r
 }
 
-type partitionStore struct {
-	// A map of partition keys to partition containers
-	Map map[model.PartitionKey]*partitionContainer
+type aggregateStore struct {
+	// A map of aggregate keys to aggregate containers
+	Map map[model.AggregateKey]*aggregateContainer
 }
 
-func newPartitionStore() partitionStore {
-	return partitionStore{
-		Map: make(map[model.PartitionKey]*partitionContainer),
+func newAggregateStore() aggregateStore {
+	return aggregateStore{
+		Map: make(map[model.AggregateKey]*aggregateContainer),
 	}
 }
 
 type InMemoryStore struct {
 	// Map of domains, by domain key
 	domains map[model.DomainKey]model.Domain
-	// Map of partitionStores, by domain key
-	partitions map[model.DomainKey]partitionStore
+	// Map of aggregateStores, by domain key
+	aggregates map[model.DomainKey]aggregateStore
 	requests   chan operation
 	stop       chan bool
 	running    bool
@@ -51,7 +51,7 @@ type InMemoryStore struct {
 func NewInMemoryStore() *InMemoryStore {
 	s := &InMemoryStore{
 		domains:    make(map[model.DomainKey]model.Domain),
-		partitions: make(map[model.DomainKey]partitionStore),
+		aggregates: make(map[model.DomainKey]aggregateStore),
 		requests:   make(chan operation),
 		stop:       make(chan bool),
 		running:    false,
@@ -136,17 +136,17 @@ func (s *InMemoryStore) GetDomain(key model.DomainKey) (*model.Domain, error) {
 	return container.Domain, container.Err
 }
 
-func (s *InMemoryStore) AppendNewSource(domain model.DomainKey, partition model.PartitionKey, token string, source model.Source) (*model.Source, error) {
+func (s *InMemoryStore) AppendNewSource(domain model.DomainKey, aggregate model.AggregateKey, token string, source model.Source) (*model.Source, error) {
 	container := newSourceOp(func(op *sourceOp) {
-		parts, ok := s.partitions[domain]
+		aggrs, ok := s.aggregates[domain]
 		if !ok {
-			parts = newPartitionStore()
+			aggrs = newAggregateStore()
 		}
-		partContainer, ok := parts.Map[partition]
+		aggrContainer, ok := aggrs.Map[aggregate]
 		if !ok {
-			partContainer = newPartitionContainer(partition)
+			aggrContainer = newAggregateContainer(aggregate)
 		}
-		registrations, ok := partContainer.Partition.Sources[token]
+		registrations, ok := aggrContainer.Aggregate.Sources[token]
 		if !ok {
 			registrations = make(model.SourceRegistrations)
 		}
@@ -156,7 +156,7 @@ func (s *InMemoryStore) AppendNewSource(domain model.DomainKey, partition model.
 		if !ok {
 			reg = model.SourceRegistration{
 				model.ClockEntry{
-					partContainer.next(),
+					aggrContainer.next(),
 					time.Now(),
 				},
 				source,
@@ -168,14 +168,14 @@ func (s *InMemoryStore) AppendNewSource(domain model.DomainKey, partition model.
 			// store.  Our mutations are confined to a single
 			// goroutine, so this is safe.
 			registrations[srckey] = reg
-			partContainer.Partition.Sources[token] = registrations
-			parts.Map[partition] = partContainer
-			s.partitions[domain] = parts
+			aggrContainer.Aggregate.Sources[token] = registrations
+			aggrs.Map[aggregate] = aggrContainer
+			s.aggregates[domain] = aggrs
 
 			// And notify, ignoring errors.
-			_ = s.NotifyMutationSubscribers(model.PartitionMessage{
+			_ = s.NotifyMutationSubscribers(model.AggregateMessage{
 				DomainKey: domain,
-				Partition: partContainer.Partition,
+				Aggregate: aggrContainer.Aggregate,
 			})
 		}
 	})
@@ -184,28 +184,28 @@ func (s *InMemoryStore) AppendNewSource(domain model.DomainKey, partition model.
 }
 
 /*
-func (s *InMemoryStore) AppendNewPartition(domainKey string, partitionKey string, model.Partition) (model.Partition, error) {
+func (s *InMemoryStore) AppendNewAggregate(domainKey string, aggregateKey string, model.Aggregate) (model.Aggregate, error) {
 }
 
-func (s *InMemoryStore) SetPartition(domainKey string, partitionKey string, model.Partition) (model.Partition, error) {
+func (s *InMemoryStore) SetAggregate(domainKey string, aggregateKey string, model.Aggregate) (model.Aggregate, error) {
 }
 */
 
-func (s *InMemoryStore) GetPartition(domain model.DomainKey, partition model.PartitionKey) (*model.Partition, error) {
-	container := newPartitionOp(func(op *partitionOp) {
-		sourceMap, ok := s.partitions[domain]
+func (s *InMemoryStore) GetAggregate(domain model.DomainKey, aggregate model.AggregateKey) (*model.Aggregate, error) {
+	container := newAggregateOp(func(op *aggregateOp) {
+		sourceMap, ok := s.aggregates[domain]
 		if !ok {
 			return
 		}
-		partContainer, ok := sourceMap.Map[partition]
+		aggrContainer, ok := sourceMap.Map[aggregate]
 		if !ok {
 			return
 		}
-		op.Partition = &partContainer.Partition
+		op.Aggregate = &aggrContainer.Aggregate
 		op.Err = nil
 	})
 	s.Submit(container)
-	return container.Partition, container.Err
+	return container.Aggregate, container.Err
 }
 
 func (s *InMemoryStore) SubscribeToMutations(client chan []byte) chan interface{} {
