@@ -182,24 +182,74 @@ func exampleSourceReg(seqnum string) (SourceRegistration, testJsonSourceReg) {
 	}
 }
 
-type testSourcePair struct {
-	Reg  SourceRegistration
-	Mock testJsonSourceReg
-	Key  string
+// Form we expect in our source collections,
+// where the registration clock details are found
+// via the version index, and the source is a
+// nested structure.
+type testJsonSourceLogEntry struct {
+	VersionIdx int
+	Key        string
+	Source     struct {
+		Keys  map[string]string
+		Attrs map[string]string
+	}
 }
 
-func newTestSourcePair(reg SourceRegistration, mock testJsonSourceReg) testSourcePair {
-	key := hashKVPairs(util.NewStringKVPairs(mock.Keys))
-	return testSourcePair{Reg: reg, Mock: mock, Key: key}
+// And the version details we expect to receive.
+type testJsonVersion struct {
+	SeqNum      string
+	Approximate string
 }
 
-func exampleSourceRegs(prefix string) chan testSourcePair {
-	c := make(chan testSourcePair)
+func (v testJsonVersion) ClockEntry() ClockEntry {
+	t, _ := time.Parse(time.RFC3339Nano, v.Approximate)
+	return ClockEntry{testCounter(v.SeqNum), t}
+}
+
+func exampleSourceLogEntry(prefix string, count int) (SourceLog, testJsonSourceLogEntry, testJsonVersion) {
+	seqnum := fmt.Sprintf("%s-%09d", prefix, count)
+	keys, attrs := make(map[string]string), make(map[string]string)
+	keys[fmt.Sprintf("%s-key", seqnum)] = fmt.Sprintf("%s-value", seqnum)
+	keys[fmt.Sprintf("key-%s", seqnum)] = fmt.Sprintf("value-%s", seqnum)
+	attrs[fmt.Sprintf("%s-attr", seqnum)] = fmt.Sprintf("%s-value", seqnum)
+	attrs[fmt.Sprintf("attr-%s", seqnum)] = fmt.Sprintf("value-%s", seqnum)
+	s := Source{keys, attrs}
+	t := SourceLog{
+		VersionIdx: count,
+		Key:        hashKVPairs(util.NewStringKVPairs(keys)),
+		Source:     s,
+	}
+	v := testJsonVersion{
+		SeqNum:      seqnum,
+		Approximate: time.Now().Format(time.RFC3339Nano),
+	}
+	l := testJsonSourceLogEntry{
+		VersionIdx: count,
+		Key:        t.Key,
+		Source: struct {
+			Keys  map[string]string
+			Attrs map[string]string
+		}{
+			Keys:  keys,
+			Attrs: attrs,
+		},
+	}
+	return t, l, v
+}
+
+type testSourceTriple struct {
+	Entry   SourceLog
+	Mock    testJsonSourceLogEntry
+	Version testJsonVersion
+}
+
+func exampleSourceRegs(prefix string) chan testSourceTriple {
+	c := make(chan testSourceTriple)
 	go func() {
 		i := 0
 		for {
-			reg, mock := exampleSourceReg(fmt.Sprintf("%s-%06d", prefix, i))
-			c <- newTestSourcePair(reg, mock)
+			log, mock, ver := exampleSourceLogEntry(prefix, i)
+			c <- testSourceTriple{log, mock, ver}
 			i++
 		}
 	}()
@@ -225,25 +275,34 @@ func TestAggregateJsonMarshaling(t *testing.T) {
 	jsonable := struct {
 		Key     string
 		Attrs   map[string]string
-		Sources map[string]map[string]testJsonSourceReg
+		Log     []testJsonVersion
+		Sources map[string][]testJsonSourceLogEntry
 	}{
 		"a-aggregate-key",
 		map[string]string{
 			"foo-aggr-attr": "foo-aggr-attr-val",
 			"bar-aggr-attr": "bar-aggr-attr-val",
 		},
-		map[string]map[string]testJsonSourceReg{
-			"foo-token": map[string]testJsonSourceReg{
-				src_foo_a.Key: src_foo_a.Mock,
-				src_foo_b.Key: src_foo_b.Mock,
+		[]testJsonVersion{
+			src_foo_a.Version,
+			src_foo_b.Version,
+			src_bar_a.Version,
+			src_bar_b.Version,
+			src_baz_a.Version,
+			src_baz_b.Version,
+		},
+		map[string][]testJsonSourceLogEntry{
+			"foo-token": []testJsonSourceLogEntry{
+				src_foo_a.Mock,
+				src_foo_b.Mock,
 			},
-			"bar-token": map[string]testJsonSourceReg{
-				src_bar_a.Key: src_bar_a.Mock,
-				src_bar_b.Key: src_bar_b.Mock,
+			"bar-token": []testJsonSourceLogEntry{
+				src_bar_a.Mock,
+				src_bar_b.Mock,
 			},
-			"baz-token": map[string]testJsonSourceReg{
-				src_baz_a.Key: src_baz_a.Mock,
-				src_baz_b.Key: src_baz_b.Mock,
+			"baz-token": []testJsonSourceLogEntry{
+				src_baz_a.Mock,
+				src_baz_b.Mock,
 			},
 		},
 	}
@@ -251,19 +310,18 @@ func TestAggregateJsonMarshaling(t *testing.T) {
 	aggr := Aggregate{
 		Key:   AggregateKey(jsonable.Key),
 		Attrs: jsonable.Attrs,
-		Sources: SourceMap{
-			"foo-token": SourceRegistrations{
-				src_foo_a.Key: src_foo_a.Reg,
-				src_foo_b.Key: src_foo_b.Reg,
-			},
-			"bar-token": SourceRegistrations{
-				src_bar_a.Key: src_bar_a.Reg,
-				src_bar_b.Key: src_bar_b.Reg,
-			},
-			"baz-token": SourceRegistrations{
-				src_baz_a.Key: src_baz_a.Reg,
-				src_baz_b.Key: src_baz_b.Reg,
-			},
+		Log: []ClockEntry{
+			src_foo_a.Version.ClockEntry(),
+			src_foo_b.Version.ClockEntry(),
+			src_bar_a.Version.ClockEntry(),
+			src_bar_b.Version.ClockEntry(),
+			src_baz_a.Version.ClockEntry(),
+			src_baz_b.Version.ClockEntry(),
+		},
+		Sources: SourceLogMap{
+			"foo-token": []SourceLog{src_foo_a.Entry, src_foo_b.Entry},
+			"bar-token": []SourceLog{src_bar_a.Entry, src_bar_b.Entry},
+			"baz-token": []SourceLog{src_baz_a.Entry, src_baz_b.Entry},
 		},
 	}
 
