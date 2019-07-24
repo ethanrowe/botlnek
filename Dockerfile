@@ -1,12 +1,12 @@
 FROM golang:1.12.5 AS build
 
-COPY . /go/src/github.com/ethanrowe/botlnek
-WORKDIR /go/src/github.com/ethanrowe/botlnek
+COPY . /botlnek
+WORKDIR /botlnek
 RUN make clean
 RUN make build
 
 FROM golang:1.12.5 AS run
-COPY --from=build /go/src/github.com/ethanrowe/botlnek/bin /botlnek
+COPY --from=build /botlnek/bin /botlnek
 WORKDIR /
 EXPOSE 8080
 ENTRYPOINT ["/botlnek/restserver"]
