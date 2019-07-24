@@ -5,18 +5,26 @@ import (
 	"time"
 )
 
+type aggregateSourceKey struct {
+	CollectionToken string
+	SourceKey       string
+}
+
 type aggregateContainer struct {
 	Count     InMemoryCounter
 	Aggregate model.Aggregate
+	KeyIndex  map[aggregateSourceKey]bool
 }
 
 func newAggregateContainer(aggregate model.AggregateKey) *aggregateContainer {
 	return &aggregateContainer{
 		Aggregate: model.Aggregate{
 			Key:     aggregate,
-			Sources: make(model.SourceMap),
+			Sources: make(model.SourceLogMap),
 			Attrs:   make(map[string]string),
+			Log:     make([]model.ClockEntry, 0, 10),
 		},
+		KeyIndex: make(map[aggregateSourceKey]bool),
 	}
 }
 
@@ -148,27 +156,26 @@ func (s *InMemoryStore) AppendNewSource(domain model.DomainKey, aggregate model.
 		}
 		registrations, ok := aggrContainer.Aggregate.Sources[token]
 		if !ok {
-			registrations = make(model.SourceRegistrations)
+			registrations = make([]model.SourceLog, 0, 1)
 		}
-		srckey := source.KeyHash()
-		reg, ok := registrations[srckey]
+		idempotentKey := aggregateSourceKey{token, source.KeyHash()}
+		reg, _ := aggrContainer.KeyIndex[idempotentKey]
 		// This is a new reg if it's not present already.
-		if !ok {
-			reg = model.SourceRegistration{
-				model.ClockEntry{
-					aggrContainer.next(),
-					time.Now(),
-				},
-				source,
-			}
+		if !reg {
 			op.Source = &source
 		}
 		if op.Err == nil && op.Source != nil {
 			// In this case it's a new entry, so mutate the
 			// store.  Our mutations are confined to a single
 			// goroutine, so this is safe.
-			registrations[srckey] = reg
-			aggrContainer.Aggregate.Sources[token] = registrations
+			aggrContainer.KeyIndex[idempotentKey] = true
+			clock := model.ClockEntry{aggrContainer.next(), time.Now()}
+			aggrContainer.Aggregate.Log = append(aggrContainer.Aggregate.Log, clock)
+			aggrContainer.Aggregate.Sources[token] = append(registrations, model.SourceLog{
+				VersionIdx: len(aggrContainer.Aggregate.Log) - 1,
+				Key:        idempotentKey.SourceKey,
+				Source:     source,
+			})
 			aggrs.Map[aggregate] = aggrContainer
 			s.aggregates[domain] = aggrs
 
