@@ -171,7 +171,6 @@ func (s scenario) verify(store *InMemoryStore) (r bool, err error) {
 			// for free.
 			expectPerToken := make(map[string]int)
 			receivedPerToken := make(map[string]int)
-			seqnos := make([]model.Counter, len(sources))
 
 			for i, source := range sources {
 				expectPerToken[source.Token]++
@@ -181,21 +180,32 @@ func (s scenario) verify(store *InMemoryStore) (r bool, err error) {
 					err = fmt.Errorf("Could not find domain %q aggregate %q token %q", dk, pk, source.Token)
 					return r, err
 				}
-				// Find the source by deterministic key
-				src, ok := tks[source.Key]
-				if !ok {
-					err = fmt.Errorf("Could not find domain %q aggregate %q token %q source %q (%q)", dk, pk, source.Token, source.Key, source.Source)
+				// Find the source by position within the collection
+				srcLog := tks[expectPerToken[source.Token]-1]
+				if srcLog.Key != source.Key {
+					err = fmt.Errorf("Could not find domain %q aggregate %q token %q source %q (%q)\n\treceived: %q", dk, pk, source.Token, source.Key, source.Source, srcLog)
 					return r, err
 				}
-				seqnos[i] = src.SeqNum
-				// Verify order.
+				// Verify that the version index matches our
+				// loop index, since we expect strong ordering
+				// of sources within the aggregate.
+				if srcLog.VersionIdx != i {
+					err = fmt.Errorf("Source VersionIdx %d does not match expected index %d", srcLog.VersionIdx, i)
+					return r, err
+				}
+
+				// Verify order of referenced seqnums.
 				if i > 0 {
-					if !src.SeqNum.Less(seqnos[i-1], src.SeqNum) {
-						err = fmt.Errorf("domain %q aggregate %q token %q source #%d count is out of order with source #%d (%q is not less than %q", dk, pk, source.Token, i, i-1, seqnos[i-1], src.SeqNum)
+					thisClock := aggr.Log[i]
+					prevClock := aggr.Log[i-1]
+					if !prevClock.SeqNum.Less(prevClock.SeqNum, thisClock.SeqNum) {
+						err = fmt.Errorf("domain %q aggregate %q token %q source #%d count is out of order with source #%d (%q is not less than %q", dk, pk, source.Token, i, i-1, prevClock.SeqNum, thisClock.SeqNum)
 						return r, err
 					}
 				}
+
 				// Verify keys and attrs
+				src := srcLog.Source
 				if !reflect.DeepEqual(source.Source.Keys, src.Keys) {
 					err = fmt.Errorf("domain %q aggregate %q token %q source #%d wrong keys (wanted %q; got %q)", dk, pk, source.Token, i, source.Source.Keys, src.Keys)
 					return r, err
@@ -314,6 +324,7 @@ func TestAppendNewSourceNotification(t *testing.T) {
 	tk := <-tokenGen
 
 	sources := []model.Source{<-sourceGen, <-sourceGen, <-sourceGen}
+	sourceLogs := make([]model.SourceLog, len(sources))
 
 	// Buffer to the expected number of messages so we don't have to
 	// worry about missing messages due to non-blocking send.
@@ -324,13 +335,13 @@ func TestAppendNewSourceNotification(t *testing.T) {
 	// We expect a full representation of the aggregate with every
 	// new source.
 	// For now, I'm just gonna verify that the sources are there.
-	expectedSources := make([]map[string]model.Source, len(sources))
 	for i, source := range sources {
-		expected := make(map[string]model.Source)
-		for _, earlierSource := range sources[:i+1] {
-			expected[earlierSource.KeyHash()] = earlierSource
+		sourceLogs[i] = model.SourceLog{
+			VersionIdx: i,
+			Key:        source.KeyHash(),
+			Source:     source,
 		}
-		expectedSources[i] = expected
+
 		fmt.Println("Appending source:", d.Key, pk, tk, source)
 		resp, err := s.AppendNewSource(d.Key, pk, tk, source)
 		if err != nil {
@@ -355,7 +366,8 @@ func TestAppendNewSourceNotification(t *testing.T) {
 			Aggregate struct {
 				Key     model.AggregateKey
 				Attrs   map[string]string
-				Sources map[string]map[string]model.Source
+				Log     []map[string]string
+				Sources map[string][]model.SourceLog
 			}
 		}{}
 		err := json.Unmarshal(rawReceived, &received)
@@ -376,8 +388,8 @@ func TestAppendNewSourceNotification(t *testing.T) {
 			t.Fatalf("Missing aggregate token %q", tk)
 		}
 
-		if !reflect.DeepEqual(receivedSources, expectedSources[i]) {
-			t.Errorf("Mismatch of sources:\n\tExpected %q\n\tReceived %q\n", expectedSources[i], receivedSources)
+		if !reflect.DeepEqual(receivedSources, sourceLogs[0:i+1]) {
+			t.Errorf("Mismatch of sources:\n\tExpected %q\n\tReceived %q\n", sourceLogs[0:i+1], receivedSources)
 		}
 	}
 

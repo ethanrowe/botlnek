@@ -47,10 +47,19 @@ type SourceRegistrations map[string]SourceRegistration
 
 type SourceMap map[string]SourceRegistrations
 
+type SourceLog struct {
+	VersionIdx int
+	Key        string
+	Source     Source
+}
+
+type SourceLogMap map[string][]SourceLog
+
 type Aggregate struct {
 	Key     AggregateKey
 	Attrs   map[string]string
-	Sources SourceMap
+	Log     []ClockEntry
+	Sources SourceLogMap
 }
 
 func (p Aggregate) MarshalJSON() ([]byte, error) {
@@ -58,10 +67,12 @@ func (p Aggregate) MarshalJSON() ([]byte, error) {
 		struct {
 			Key     AggregateKey
 			Attrs   map[string]string
-			Sources SourceMap
+			Log     []ClockEntry
+			Sources SourceLogMap
 		}{
 			p.Key,
 			p.Attrs,
+			p.Log,
 			p.Sources,
 		},
 	)
