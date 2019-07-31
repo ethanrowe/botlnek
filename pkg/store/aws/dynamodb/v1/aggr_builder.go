@@ -5,6 +5,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/ethanrowe/botlnek/pkg/model"
+	"strings"
 )
 
 type AggregateDynamoItemReader struct {
@@ -37,26 +38,55 @@ func (bldr *AggregateDynamoItemReader) QueryInput(dk model.DomainKey, ak model.A
 		},
 		ProjectionExpression: aws.String(fmt.Sprintf("%s,%s,%s,%s", bldr.Store.AggregateMemberKeyColumn, ColNameRevision, ColNameKeys, ColNameAttrs)),
 		TableName:            aws.String(bldr.Store.TableName),
-		ScanIndexForward:     aws.Bool(false),
 		ConsistentRead:       aws.Bool(true),
 	}
 }
 
 // True value will mean still good to process
 func (bldr *AggregateDynamoItemReader) IngestItems(data *dynamodb.QueryOutput) bool {
-	// A healthy aggregate should have at least two items;
-	// the version item, and at least one source item.
 	bldr.Error = nil
+	numLogs := 0
+	memKey := bldr.Store.AggregateMemberKeyColumn
 
-	if aws.Int64Value(data.Count) > 1 {
-		groupKey, sourceLogEntry := bldr.Store.ReadSourceItem(data.Items[1])
-		sourceLogEntry.VersionIdx = 0
-		bldr.Aggregate.Log = append(bldr.Aggregate.Log, bldr.Store.ReadRevisionItem(data.Items[0]))
-		bldr.Aggregate.Sources = model.SourceLogMap{
-			groupKey: []model.SourceLog{sourceLogEntry},
+	// Scan for the revision rows first, then assume the rest are source rows.
+	for _, item := range data.Items {
+		if strings.HasPrefix(aws.StringValue(item[memKey].S), "R") {
+			numLogs++
+		} else {
+			break
 		}
-	} else {
-		bldr.Aggregate = nil
 	}
+
+	if numLogs < 1 {
+		bldr.Aggregate = nil
+		return false
+	}
+
+	bldr.Aggregate.Log = make([]model.ClockEntry, numLogs)
+	for i, item := range data.Items[:numLogs] {
+		bldr.Aggregate.Log[i] = bldr.Store.ReadRevisionItem(item)
+	}
+
+	// Everything else is a source item
+	numItems := len(data.Items) - numLogs
+	for _, item := range data.Items[numLogs:] {
+		groupKey, sourceEntry := bldr.Store.ReadSourceItem(item)
+		group, ok := bldr.Aggregate.Sources[groupKey]
+		if !ok {
+			// TODO: reconsider this mem alloc algorithm; while it
+			// guarantees capacity, it's a terrible algorithm if you
+			// have a wide range of collection keys.
+			group = make([]model.SourceLog, 0, numItems)
+		}
+		// reslice; we're guaranteed to have capacity.
+		group = group[:len(group)+1]
+		group[len(group)-1] = sourceEntry
+		// reassign because we resliced.
+		bldr.Aggregate.Sources[groupKey] = group
+		// decrement numItems because we can guarantee capacity for later
+		// groups with a smaller number.
+		numItems--
+	}
+
 	return true
 }

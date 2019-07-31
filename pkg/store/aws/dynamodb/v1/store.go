@@ -47,11 +47,12 @@ func (store *DynamoDbStoreV1) ReadRevisionItem(item map[string]*dynamodb.Attribu
 
 func (store *DynamoDbStoreV1) ReadSourceItem(item map[string]*dynamodb.AttributeValue) (string, model.SourceLog) {
 	keyparts := make([]string, 2)
-	fmt.Printf("ReadSourceItem key part: %v\n", aws.StringValue(item[store.AggregateMemberKeyColumn].S))
-	err := json.Unmarshal([]byte(aws.StringValue(item[store.AggregateMemberKeyColumn].S)), &keyparts)
-	fmt.Printf("ReadSourceItem parsed key parts: %v\n\twith error: %v\n", keyparts, err)
+	// TODO: this error handling is garbage.  Rather, this non-handling.
+	_ = json.Unmarshal([]byte(aws.StringValue(item[store.AggregateMemberKeyColumn].S)), &keyparts)
+	ver, _ := strconv.Atoi(aws.StringValue(item[ColNameRevision].N))
 	log := model.SourceLog{
-		Key: keyparts[1],
+		Key:        keyparts[1],
+		VersionIdx: ver,
 		Source: model.Source{
 			Keys:  FromDynamoStringMap(item[ColNameKeys]),
 			Attrs: FromDynamoStringMap(item[ColNameAttrs]),
