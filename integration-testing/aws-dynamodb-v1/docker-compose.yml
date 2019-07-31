@@ -1,0 +1,37 @@
+version: "3.4"
+
+services:
+  dynamodb:
+    image: "amazon/dynamodb-local"
+    networks:
+      - dynamodb-testing
+    ports:
+      - "8000:8000"
+
+  test:
+    build:
+      context: "../../"
+      target: deps
+    volumes:
+      - type: bind
+        source: ../../
+        target: /botlnek
+    working_dir: /botlnek/pkg/store/aws/dynamodb/v1
+    environment:
+      - BOTLNEK_DYNAMODB_ENDPOINT=http://dynamodb:8000
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=bogus
+      - AWS_SECRET_ACCESS_KEY=bilge
+    networks:
+      - dynamodb-testing
+    depends_on:
+      - dynamodb
+    command:
+      - go
+      - test
+      - -v
+      - -tags=integration
+
+networks:
+  dynamodb-testing:
+
