@@ -61,39 +61,14 @@ func (store *DynamoDbStoreV1) ReadSourceItem(item map[string]*dynamodb.Attribute
 }
 
 func (store *DynamoDbStoreV1) GetAggregate(dk model.DomainKey, ak model.AggregateKey) (*model.Aggregate, error) {
-	query := &dynamodb.QueryInput{
-		KeyConditionExpression: aws.String(fmt.Sprintf("%s = :v1", store.AggregateKeyColumn)),
-		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
-			":v1": {
-				S: aws.String(store.HashKey(dk, ak)),
-			},
-		},
-		ProjectionExpression: aws.String(fmt.Sprintf("%s,%s,%s,%s", store.AggregateMemberKeyColumn, ColNameRevision, ColNameKeys, ColNameAttrs)),
-		TableName:            aws.String(store.TableName),
-		ScanIndexForward:     aws.Bool(false),
-		ConsistentRead:       aws.Bool(true),
-	}
+	reader := NewAggregateDynamoItemReader(store)
+	query := reader.QueryInput(dk, ak)
 	result, err := store.Service.Query(query)
 	if err != nil {
 		return nil, err
 	}
 	fmt.Printf("Result from query: %v", result)
-	// A healthy aggregate should have at least two items;
-	// the version item, and at least one source item.
 
-	if aws.Int64Value(result.Count) > 1 {
-		log := make([]model.ClockEntry, 1)
-		log[0] = store.ReadRevisionItem(result.Items[0])
-		groupKey, sourceLogEntry := store.ReadSourceItem(result.Items[1])
-		sourceLogEntry.VersionIdx = 0
-		return &model.Aggregate{
-			Key: ak,
-			Log: log,
-			Sources: model.SourceLogMap{
-				groupKey: []model.SourceLog{sourceLogEntry},
-			},
-		}, nil
-	}
-	return nil, nil
-
+	_ = reader.IngestItems(result)
+	return reader.Aggregate, reader.Error
 }
