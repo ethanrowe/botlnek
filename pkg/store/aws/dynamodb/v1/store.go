@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	ColNameRevision = "rev"
-	ColNameKeys     = "km"
-	ColNameAttrs    = "am"
+	ColNameRevision  = "rev"
+	ColNameKeys      = "km"
+	ColNameAttrs     = "am"
+	ColNameTimestamp = "ts"
 )
 
 type DynamoDbStoreV1 struct {
@@ -41,7 +42,7 @@ func (store *DynamoDbStoreV1) HashKey(dk model.DomainKey, ak model.AggregateKey)
 func (store *DynamoDbStoreV1) ReadRevisionItem(item map[string]*dynamodb.AttributeValue) (out model.ClockEntry) {
 	num, _ := strconv.Atoi(aws.StringValue(item[ColNameRevision].N))
 	out.SeqNum = inmemory.InMemoryCounter(num)
-	// ignore out.Approximate =
+	out.Approximate, _ = FromDynamoMillisTimestamp(item[ColNameTimestamp])
 	return
 }
 

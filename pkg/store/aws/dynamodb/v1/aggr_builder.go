@@ -36,7 +36,7 @@ func (bldr *AggregateDynamoItemReader) QueryInput(dk model.DomainKey, ak model.A
 				S: aws.String(bldr.Store.HashKey(dk, ak)),
 			},
 		},
-		ProjectionExpression: aws.String(fmt.Sprintf("%s,%s,%s,%s", bldr.Store.AggregateMemberKeyColumn, ColNameRevision, ColNameKeys, ColNameAttrs)),
+		ProjectionExpression: aws.String(fmt.Sprintf("%s,%s,%s,%s,%s", bldr.Store.AggregateMemberKeyColumn, ColNameRevision, ColNameKeys, ColNameAttrs, ColNameTimestamp)),
 		TableName:            aws.String(bldr.Store.TableName),
 		ConsistentRead:       aws.Bool(true),
 	}

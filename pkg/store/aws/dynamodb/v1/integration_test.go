@@ -139,6 +139,7 @@ func (ts *testScenario) BatchWriteInput(items ...*dynamodb.WriteRequest) *dynamo
 
 func (ts *testScenario) PrepareSourceRevision(pk, revk, srck, rev string, tstamp time.Time, keys, attrs *dynamodb.AttributeValue) (*dynamodb.BatchWriteItemOutput, error) {
 	revKey := "rev"
+	tsCol := "ts"
 	keysCol := "km"
 	attrsCol := "am"
 	input := ts.BatchWriteInput(
@@ -153,6 +154,9 @@ func (ts *testScenario) PrepareSourceRevision(pk, revk, srck, rev string, tstamp
 					},
 					revKey: {
 						N: aws.String(rev),
+					},
+					tsCol: {
+						S: aws.String(tstamp.Format("20060102T150405.999")),
 					},
 				},
 			},
@@ -207,13 +211,23 @@ func TestRead(t *testing.T) {
 		Keys:  map[string]string{"key-a": "b key", "key-b": "a key"},
 		Attrs: map[string]string{"attr-a": "b attr", "attr-b": "a attr"},
 	}
+
+	//Round all times to nearest millisecond, since going beyond that is
+	//sort of ridiculous.  Note that I splay by a millisecond in either
+	//direction so we're sure to get times with a millisecond count other
+	//than zero.
+	times := make([]time.Time, 3)
+	times[2] = time.Now().UTC().Round(time.Millisecond)
+	times[1] = times[2].Add(-time.Minute + time.Millisecond)
+	times[0] = times[2].Add(-2*time.Minute - time.Millisecond)
+
 	fmt.Print(source1)
 	prepResult, prepErr := scenario.PrepareSourceRevision(
 		pKey,
 		"R0000000000",
 		fmt.Sprintf("[%q,%q]", "groupA", source0.KeyHash()),
 		"0",
-		time.Now(),
+		times[0],
 		ToDynamoStringMap(source0.Keys),
 		ToDynamoStringMap(source0.Attrs),
 	)
@@ -230,6 +244,10 @@ func TestRead(t *testing.T) {
 
 	if len(received.Log) != 1 {
 		t.Fatalf("Expected aggregate with 1 log entry; got %d", len(received.Log))
+	}
+
+	if received.Log[0].Approximate != times[0] {
+		t.Errorf("Log[0] time expected %s but got %s", times[0], received.Log[0].Approximate)
 	}
 
 	if len(received.Sources) != 1 {
@@ -263,7 +281,7 @@ func TestRead(t *testing.T) {
 		"R0000000001",
 		fmt.Sprintf("[%q,%q]", "groupA", source1.KeyHash()),
 		"1",
-		time.Now(),
+		times[1],
 		ToDynamoStringMap(source1.Keys),
 		ToDynamoStringMap(source1.Attrs),
 	)
@@ -276,7 +294,7 @@ func TestRead(t *testing.T) {
 		"R0000000002",
 		fmt.Sprintf("[%q,%q]", "groupB", source0.KeyHash()),
 		"2",
-		time.Now(),
+		times[2],
 		ToDynamoStringMap(source0.Keys),
 		ToDynamoStringMap(source0.Attrs),
 	)
@@ -292,6 +310,12 @@ func TestRead(t *testing.T) {
 
 	if len(received.Log) != 3 {
 		t.Errorf("Expected log with 3 entries, got %d", len(received.Log))
+	}
+
+	for i, l := range received.Log {
+		if l.Approximate != times[i] {
+			t.Errorf("Log[%d] expected time %s but got %s", i, times[i], l.Approximate)
+		}
 	}
 
 	if len(received.Sources) != 2 {

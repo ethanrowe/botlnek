@@ -1,8 +1,14 @@
 package v1
 
 import (
+	"errors"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"time"
+)
+
+const (
+	TimestampMillis = "20060102T150405.999"
 )
 
 func ToDynamoStringMap(m map[string]string) *dynamodb.AttributeValue {
@@ -27,3 +33,17 @@ func FromDynamoStringMap(m *dynamodb.AttributeValue) map[string]string {
 	return result
 }
 
+func ToDynamoMillisTimestamp(ts time.Time) *dynamodb.AttributeValue {
+	return &dynamodb.AttributeValue{
+		S: aws.String(ts.UTC().Format(TimestampMillis)),
+	}
+}
+
+func FromDynamoMillisTimestamp(s *dynamodb.AttributeValue) (t time.Time, e error) {
+	if s.S == nil {
+		e = errors.New("Given attribute is not a millisecond timestamp")
+	} else {
+		t, e = time.Parse(TimestampMillis, aws.StringValue(s.S))
+	}
+	return
+}
